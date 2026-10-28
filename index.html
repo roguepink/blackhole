@@ -92,6 +92,17 @@ var STAGES = [
   { n: '太陽級', m: 8, e: ['🪐', '🌍', '🌟', '☄️'] },
   { n: '銀河級', m: 16, e: ['🌟', '🌌', '💫', '🪐'] }
 ];
+// 点数が上がると 月 → 火星 → 水星 → 木星 → 金星 → 土星 → 太陽 の順に 背景と自分の星が育つ
+var LV = [
+  { n: '月', sc: 0,   base: [7, 5, 26],  n1: [100, 60, 170], n2: [40, 90, 190],  disc: ['255,240,210', '190,196,235', '110,110,200'], pl: 'moon' },
+  { n: '火星', sc: 40,  base: [26, 8, 10], n1: [170, 60, 40],  n2: [120, 40, 60],  disc: ['255,200,150', '255,110,60', '170,40,50'], pl: 'mars' },
+  { n: '水星', sc: 100, base: [13, 12, 14], n1: [130, 115, 100], n2: [80, 80, 110], disc: ['255,245,225', '200,190,170', '120,115,130'], pl: 'mercury' },
+  { n: '木星', sc: 180, base: [24, 14, 8], n1: [190, 120, 60], n2: [150, 80, 50], disc: ['255,225,160', '230,150,70', '160,80,50'], pl: 'jupiter' },
+  { n: '金星', sc: 300, base: [26, 20, 6], n1: [210, 170, 60], n2: [170, 110, 40], disc: ['255,250,190', '255,210,80', '190,130,40'], pl: 'venus' },
+  { n: '土星', sc: 450, base: [10, 12, 28], n1: [200, 180, 120], n2: [70, 100, 170], disc: ['255,250,225', '235,215,150', '90,150,190'], pl: 'saturn' },
+  { n: '太陽', sc: 650, base: [30, 8, 2], n1: [255, 120, 30], n2: [220, 60, 20], disc: ['255,255,235', '255,190,70', '230,80,30'], pl: 'sun' }
+];
+function lvOf(sc) { var i = 0; for (var k = 0; k < LV.length; k++) if (sc >= LV[k].sc) i = k; return i; }
 var STAR_COLORS = ['#ffd27a', '#ff9a5a', '#8fc8ff', '#fff0b0', '#ff86b0', '#b9a2ff'];
 var TAU = Math.PI * 2;
 
@@ -217,10 +228,10 @@ function start(ev) {
   Z = { z: CONFIG.PR / CONFIG.R0, zt: CONFIG.PR / CONFIG.R0 };
   OBJ = []; PARTS = [];
   G.state = 'play'; G.score = 0; G.t = 0; G.dist = 0; G.pts = 0; G.cx = 0; G.cy = 0; G.shake = 0; G.flash = 0;
-  G.spawnY = -60; G.chunk = 0; G.lastStar = -9; G.metT = 6; G.stage = 0; G.bg = 0;
+  G.spawnY = -60; G.chunk = 0; G.lastStar = -9; G.metT = 6; G.stage = 0; G.bg = 0; G.lv = 0; G.lvf = 0; G.msg2 = null; G.lvRing = 0;
   G.chase = CONFIG.CHASE_GAP / Z.z; G.warnT = 0; G.msg = null; G.taught = 0; G.why = '';
   document.getElementById('title').classList.add('hidden'); document.getElementById('over').classList.add('hidden');
-  document.getElementById('stage').textContent = STAGES[0].n;
+  document.getElementById('stage').textContent = LV[0].n + ' ・ ' + STAGES[0].n;
   // iPhone / Android で最初のタップのあとに全画面にする(失敗してもそのまま遊べる)。#play の自動開始では やらない
   if (ev && ev.isTrusted) try {
     var el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -250,6 +261,14 @@ document.getElementById('btnPlay').addEventListener('click', function (ev) { thi
 document.getElementById('btnAgain').addEventListener('click', function (ev) { this.blur(); start(ev); });
 document.addEventListener('visibilitychange', function () { G.paused = document.hidden; if (document.hidden) humStop(); });
 
+function levelUp(lv) {
+  G.lv = lv; G.lvRing = 1; G.flash = Math.max(G.flash, 0.25);
+  G.msg2 = { text: LV[lv].n + 'ゾーン！\n星が育った', t: 2.4, max: 2.4 };
+  document.getElementById('stage').textContent = LV[lv].n + ' ・ ' + STAGES[G.stage].n;
+  SFX.grow();
+  var c = 'rgb(' + LV[lv].disc[1] + ')';
+  burst(P.x, P.y, 26, c, 220);
+}
 function say(text, t) { G.msg = { text: text, t: t || 2.2, max: t || 2.2 }; }
 
 function speedNow() { return Math.min(CONFIG.SPEED_MAX, CONFIG.SPEED0 + CONFIG.SPEED_ADD * G.t); }
@@ -291,7 +310,7 @@ function grow(add2) {
   var before = stageOf(P.r);
   P.r = Math.sqrt(P.r * P.r + add2);
   var after = stageOf(P.r);
-  if (after > before) { G.stage = after; say(STAGES[after].n + 'に成長！', 2.2); SFX.grow(); document.getElementById('stage').textContent = STAGES[after].n; }
+  if (after > before) { G.stage = after; say(STAGES[after].n + 'に成長！', 2.2); SFX.grow(); document.getElementById('stage').textContent = LV[G.lv].n + ' ・ ' + STAGES[after].n; }
 }
 function burst(x, y, n, col, sp) {
   for (var i = 0; i < n; i++) {
@@ -431,7 +450,11 @@ function update(dt) {
   stepParts(dt);
   G.shake *= Math.exp(-6 * dt); G.flash = Math.max(0, G.flash - dt * 2);
   if (G.msg) { G.msg.t -= dt; if (G.msg.t <= 0) G.msg = null; }
+  if (G.msg2) { G.msg2.t -= dt; if (G.msg2.t <= 0) G.msg2 = null; }
+  if (G.lvf < G.lv) G.lvf = Math.min(G.lv, G.lvf + dt * 0.5);   // 背景は ゆっくり溶けるように変わる
+  if (G.lvRing > 0) G.lvRing = Math.max(0, G.lvRing - dt * 1.4);
   G.score = Math.floor(G.dist / 40) + G.pts;
+  var nl = lvOf(G.score); if (nl > G.lv) levelUp(nl);
   document.getElementById('score').textContent = G.score;
 }
 function stepParts(dt) {
@@ -449,19 +472,63 @@ for (var i = 0; i < 110; i++) BGS.push({ x: Math.random() * 360, y: Math.random(
 function sx(x) { return CONFIG.W / 2 + (x - G.cx) * Z.z; }
 function sy(y) { return CONFIG.H * CONFIG.PLAYER_Y + (y - G.cy) * Z.z; }
 
+function mixC(k, f) {
+  var i = Math.min(LV.length - 1, Math.floor(f)), j = Math.min(LV.length - 1, i + 1), u = f - i;
+  var A = LV[i][k], B = LV[j][k];
+  return [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u];
+}
+function rgb(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')'; }
+// 遠くに浮かぶ大きな星(あくまで背景。うすく暗く、手前の危ないものより必ず奥)
+function drawFarPlanet(type, a, t) {
+  var cx = 268 + Math.sin(t * 0.004) * 14, cy = 150 + Math.cos(t * 0.003) * 10, R = type === 'sun' ? 78 : type === 'moon' ? 62 : 70;
+  ctx.save(); ctx.globalAlpha = a;
+  var g;
+  if (type === 'sun') {
+    g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.4);
+    g.addColorStop(0, 'rgba(255,200,90,.55)'); g.addColorStop(0.35, 'rgba(255,120,40,.28)'); g.addColorStop(1, 'rgba(255,80,20,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 2.4, 0, TAU); ctx.fill();
+  }
+  var col = { moon: ['#9aa0b8', '#4a4f6a'], mars: ['#b8523a', '#5a2218'], mercury: ['#9a8f84', '#3e3832'], jupiter: ['#c99a62', '#5c3a22'], venus: ['#d9bd6a', '#7a5a20'], saturn: ['#cdb98a', '#5a4c34'], sun: ['#ffb040', '#d84a10'] }[type];
+  g = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+  g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+  if (type === 'saturn') {   // うしろ半分の輪
+    ctx.strokeStyle = 'rgba(230,205,150,.55)'; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.ellipse(cx, cy, R * 1.75, R * 0.5, -0.35, Math.PI, TAU); ctx.stroke();
+  }
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
+  if (type === 'jupiter' || type === 'saturn' || type === 'venus') {   // しま
+    for (var i = -4; i <= 4; i++) { ctx.fillStyle = i % 2 ? 'rgba(90,50,25,.28)' : 'rgba(255,230,190,.14)'; ctx.fillRect(cx - R, cy + i * R * 0.2 - R * 0.07, R * 2, R * 0.14); }
+  }
+  if (type === 'moon' || type === 'mercury' || type === 'mars') {   // クレーター
+    ctx.fillStyle = 'rgba(0,0,0,.2)';
+    [[-.3, -.2, .2], [.3, .1, .26], [-.1, .4, .15], [.1, -.45, .12], [-.5, .3, .1]].forEach(function (c) { ctx.beginPath(); ctx.arc(cx + c[0] * R, cy + c[1] * R, c[2] * R, 0, TAU); ctx.fill(); });
+  }
+  ctx.restore();
+  if (type === 'saturn') {   // 手前半分の輪
+    ctx.strokeStyle = 'rgba(240,215,160,.6)'; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.ellipse(cx, cy, R * 1.75, R * 0.5, -0.35, 0, Math.PI); ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawBG() {
-  ctx.fillStyle = '#07051a'; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  var f = Math.min(LV.length - 1, G.lvf || 0), W4 = CONFIG.W + 800, H4 = CONFIG.H + 800;
+  ctx.fillStyle = rgb(mixC('base', f), 1); ctx.fillRect(-400, -400, W4, H4);
   var t = G.bg || 0;
   var g = ctx.createRadialGradient(80, (200 + t * 0.05) % 1100 - 200, 0, 80, (200 + t * 0.05) % 1100 - 200, 260);
-  g.addColorStop(0, 'rgba(120,50,180,.35)'); g.addColorStop(1, 'rgba(120,50,180,0)');
-  ctx.fillStyle = g; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  var n1 = mixC('n1', f), n2 = mixC('n2', f);
+  g.addColorStop(0, rgb(n1, 0.3)); g.addColorStop(1, rgb(n1, 0));
+  ctx.fillStyle = g; ctx.fillRect(-400, -400, W4, H4);
   var g2 = ctx.createRadialGradient(300, (700 + t * 0.08) % 1300 - 300, 0, 300, (700 + t * 0.08) % 1300 - 300, 240);
-  g2.addColorStop(0, 'rgba(40,90,190,.3)'); g2.addColorStop(1, 'rgba(40,90,190,0)');
-  ctx.fillStyle = g2; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  g2.addColorStop(0, rgb(n2, 0.26)); g2.addColorStop(1, rgb(n2, 0));
+  ctx.fillStyle = g2; ctx.fillRect(-400, -400, W4, H4);
+  var i0 = Math.floor(f), u = f - i0;
+  drawFarPlanet(LV[i0].pl, 0.5 * (1 - u), t);
+  if (u > 0 && i0 + 1 < LV.length) drawFarPlanet(LV[i0 + 1].pl, 0.5 * u, t);
   var fast = G.state === 'play' && !(P && P.orbit);
   for (var i = 0; i < BGS.length; i++) {
     var s = BGS[i], y = ((s.y + t * s.l) % 700 + 700) % 700 - 30;
-    ctx.fillStyle = 'rgba(255,255,255,' + s.a + ')';
+    ctx.fillStyle = 'rgba(255,255,255,' + s.a * 0.8 + ')';
     var len = fast ? s.l * 10 : 1.5;
     ctx.fillRect(s.x, y, s.l > 0.5 ? 2 : 1.2, len);
   }
@@ -514,20 +581,29 @@ function drawStar(b) {
 }
 function hexA(h, a) { var n = parseInt(h.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
 function shade(h) { var n = parseInt(h.slice(1), 16); return 'rgb(' + ((n >> 16) * 0.6 | 0) + ',' + (((n >> 8) & 255) * 0.6 | 0) + ',' + ((n & 255) * 0.6 | 0) + ')'; }
+// 危ないものの下に しく 黒いかげ。どんな背景でも くっきり浮かぶ
+function haloDark(x, y, r) {
+  var g = ctx.createRadialGradient(x, y, r * 0.3, x, y, r);
+  g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+}
 function drawSpike(b) {
   var x = sx(b.x), y = sy(b.y), s = b.s * Z.z;
   if (y < -s * 3 || y > CONFIG.H + s * 3) return;
   var edible = b.s < P.r * 0.8;
+  if (!edible) haloDark(x, y, s * 2.3);
   ctx.save(); ctx.translate(x, y); ctx.rotate(b.rot);
   if (!edible) {
-    ctx.strokeStyle = 'rgba(255,60,60,' + (0.35 + 0.3 * Math.sin(b.ph)) + ')'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(0, 0, s * 1.25, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,70,70,' + (0.6 + 0.3 * Math.sin(b.ph)) + ')'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(0, 0, s * 1.3, 0, TAU); ctx.stroke();
   }
   ctx.shadowColor = '#bfe4ff'; ctx.shadowBlur = 18;
   ctx.fillStyle = '#eef8ff';
   ctx.beginPath();
   for (var i = 0; i < 20; i++) { var a = i / 20 * TAU, rr = i % 2 ? s * 0.55 : s; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
-  ctx.closePath(); ctx.fill();
+  ctx.closePath();
+  if (!edible) { ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke(); }
+  ctx.fill();
   ctx.shadowBlur = 0; ctx.fillStyle = '#9fd0ff'; ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, TAU); ctx.fill();
   ctx.restore();
 }
@@ -535,27 +611,60 @@ function drawMet(b) {
   var x = sx(b.x), y = sy(b.y), s = b.s * Z.z;
   var edible = b.s < P.r * 0.8;
   var ang = Math.atan2(b.vy, b.vx);
+  if (!edible) haloDark(x, y, s * 3);
   ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
   var g = ctx.createLinearGradient(-s * 5, 0, 0, 0);
   g.addColorStop(0, 'rgba(255,60,30,0)'); g.addColorStop(1, edible ? 'rgba(255,200,120,.7)' : 'rgba(255,80,40,.9)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-s * 5, 0); ctx.lineTo(0, -s * 0.8); ctx.lineTo(0, s * 0.8); ctx.fill();
   ctx.fillStyle = edible ? '#c98a5a' : '#ff4a2a'; ctx.shadowColor = '#ff3a1a'; ctx.shadowBlur = edible ? 0 : 16;
   ctx.beginPath(); ctx.arc(0, 0, s * 0.85, 0, TAU); ctx.fill();
+  if (!edible) { ctx.shadowBlur = 0; ctx.strokeStyle = '#fff3d0'; ctx.lineWidth = 2; ctx.stroke(); }
   ctx.restore();
 }
 function drawPlayer() {
-  var x = sx(P.x), y = sy(P.y), r = P.r * Z.z;
+  var x = sx(P.x), y = sy(P.y), r = P.r * Z.z, lv = G.lv || 0, L = LV[lv], D = L.disc;
   ctx.save();
-  // 光の円盤(降着円盤)
-  var g = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 2.6);
-  g.addColorStop(0, 'rgba(255,220,150,.95)'); g.addColorStop(0.25, 'rgba(255,140,50,.75)'); g.addColorStop(0.6, 'rgba(170,60,200,.3)'); g.addColorStop(1, 'rgba(120,40,200,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, TAU); ctx.fill();
-  ctx.translate(x, y); ctx.rotate(P.spin);
-  ctx.strokeStyle = 'rgba(255,240,200,.75)'; ctx.lineWidth = Math.max(1, r * 0.12);
+  // 光の円盤(降着円盤)。色は星の段階で変わる
+  var g = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * (2.6 + lv * 0.12));
+  g.addColorStop(0, 'rgba(' + D[0] + ',.95)'); g.addColorStop(0.25, 'rgba(' + D[1] + ',.75)'); g.addColorStop(0.6, 'rgba(' + D[2] + ',.3)'); g.addColorStop(1, 'rgba(' + D[2] + ',0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * (2.6 + lv * 0.12), 0, TAU); ctx.fill();
+  ctx.translate(x, y);
+  if (lv >= 5) {   // 光のかんむり(太陽に近づくと火の光線)
+    ctx.save(); ctx.rotate(P.spin * 0.25); ctx.fillStyle = 'rgba(' + D[0] + ',' + (lv === 6 ? 0.5 : 0.3) + ')';
+    var rays = lv === 6 ? 14 : 8;
+    for (var k = 0; k < rays; k++) { ctx.rotate(TAU / rays); ctx.beginPath(); ctx.moveTo(r * 1.1, -r * 0.1); ctx.lineTo(r * (lv === 6 ? 2.7 : 2.2), 0); ctx.lineTo(r * 1.1, r * 0.1); ctx.fill(); }
+    ctx.restore();
+  }
+  ctx.save(); ctx.rotate(P.spin);
+  ctx.strokeStyle = 'rgba(' + D[0] + ',.8)'; ctx.lineWidth = Math.max(1, r * 0.12);
   for (var i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(0, 0, r * (1.3 + i * 0.28), i * 2.1, i * 2.1 + 1.6); ctx.stroke(); }
-  ctx.rotate(-P.spin);
+  ctx.restore();
+  if (lv >= 3) {   // 惑星の輪(かたむいた だ円)
+    ctx.save(); ctx.rotate(-0.4); ctx.strokeStyle = 'rgba(' + D[1] + ',.7)'; ctx.lineWidth = Math.max(1.5, r * 0.1);
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 2.0, r * 0.55, 0, 0, TAU); ctx.stroke();
+    ctx.lineWidth = Math.max(1, r * 0.05); ctx.strokeStyle = 'rgba(' + D[0] + ',.5)';
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 2.25, r * 0.62, 0, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
   ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  if (lv >= 1) {   // 空気のふち(大気)
+    ctx.strokeStyle = 'rgba(' + D[1] + ',.85)'; ctx.lineWidth = Math.max(1.5, r * 0.09);
+    ctx.beginPath(); ctx.arc(0, 0, r * 1.06, 0, TAU); ctx.stroke();
+  }
   ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, 0, r * 1.02, 0, TAU); ctx.stroke();
+  // まわる月(段階が上がると ふえる)
+  var moons = lv >= 6 ? 3 : lv >= 4 ? 2 : lv >= 2 ? 1 : 0;
+  for (var m = 0; m < moons; m++) {
+    var a = P.spin * (0.55 + m * 0.2) + m * 2.1, mr = r * (1.85 + m * 0.35);
+    ctx.fillStyle = 'rgb(' + D[0] + ')'; ctx.shadowColor = 'rgb(' + D[1] + ')'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * mr, Math.sin(a) * mr * 0.8, Math.max(2.5, r * 0.15), 0, TAU); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  if (G.lvRing > 0) {   // 成長した瞬間の ひろがる輪
+    var q = 1 - G.lvRing;
+    ctx.strokeStyle = 'rgba(' + D[0] + ',' + G.lvRing + ')'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(0, 0, r * (1.5 + q * 4.5), 0, TAU); ctx.stroke();
+  }
   ctx.restore();
 }
 function drawChase() {
@@ -601,15 +710,16 @@ function draw() {
     ctx.fillStyle = v; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
   }
   if (G.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + G.flash * 0.6 + ')'; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800); }
-  if (G.msg) {
-    var m = G.msg, al = Math.min(1, m.t * 3, (m.max - m.t) * 6);
+  [[G.msg, 140], [G.msg2, 215]].forEach(function (mm) {
+    var m = mm[0]; if (!m) return;
+    var al = Math.min(1, m.t * 3, (m.max - m.t) * 6);
     ctx.globalAlpha = al; ctx.textAlign = 'center'; ctx.font = '900 21px "Hiragino Sans",sans-serif';
     m.text.split('\n').forEach(function (line, i) {
-      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(line, CONFIG.W / 2, 140 + i * 28);
-      ctx.fillStyle = '#ffe27a'; ctx.fillText(line, CONFIG.W / 2, 140 + i * 28);
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(line, CONFIG.W / 2, mm[1] + i * 28);
+      ctx.fillStyle = mm[1] === 215 ? '#9ff0ff' : '#ffe27a'; ctx.fillText(line, CONFIG.W / 2, mm[1] + i * 28);
     });
     ctx.globalAlpha = 1;
-  }
+  });
 }
 
 var last = 0, acc = 0;
