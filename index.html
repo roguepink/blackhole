@@ -60,7 +60,7 @@
     🕳️ 止まれない。<b>指を左右にすべらせて</b>よける<br>
     🪨 小さいものは<b>通るだけで吸いこむ</b><br>
     ⭐ 大きな星は<b>金の輪</b>に入ると回り出す。<br>
-    　<b>タップで外へふんばり</b>、1周したら<b>丸のみ！</b><br>
+    　<b>あとは自動で1周</b>して<b>丸のみ！</b><br>
     <span class="ng">💥 星・白いトゲ星・赤い隕石に当たったら一発アウト</span><br>
     <span class="ng">🌑 うしろから闇がせまる。追いつかれてもアウト</span>
   </div>
@@ -82,9 +82,8 @@ var CONFIG = {
   SPEED0: 165, SPEED_ADD: 3.2, SPEED_MAX: 320,   // 前に進む速さ(画面 px/秒)
   RING: 2.3,           // 星の「金の輪」= 星の半径 × これ
   DEATH: 0.55,         // 星の表面 + 自分の半径 × これ より内側で アウト
-  SHRINK0: 0.62, SHRINK_ADD: 0.010, SHRINK_MAX: 1.1,   // 回っている間に 星へ落ちていく速さ(星の半径 × /秒)
-  PUSH: 0.30,          // 1回のタップで 外へ ふんばる量(星の半径 ×)
-  CHASE: 0.62, CHASE_GAP: 300   // うしろの闇の速さ(自分の速さ ×)・いちばん離れても この距離(画面 px)
+  ORBIT_R: 1.65,       // 星を回るときの高さ(星の半径 ×)。自動でここへ寄って、ぶつからずに1周する
+  CHASE: 0.62, CHASE_ORBIT: 0.3, CHASE_GAP: 300   // うしろの闇の速さ(自分の速さ ×)・いちばん離れても この距離(画面 px)
 };
 var STAGES = [
   { n: '石ころ級', m: 1, e: ['🪨', '🛰️', '🧊'] },
@@ -194,7 +193,6 @@ cv.addEventListener('pointerdown', function (ev) {
   if (G.state !== 'play') return;
   drag = { x: toLogical(ev).x, id: ev.pointerId };
   try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
-  if (P.orbit) push();
 });
 cv.addEventListener('pointermove', function (ev) {
   if (G.state !== 'play' || !drag || drag.id !== ev.pointerId) return;
@@ -206,7 +204,6 @@ cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', 
 addEventListener('keydown', function (ev) {
   if (ev.key === 'ArrowLeft') KEY.l = 1;
   if (ev.key === 'ArrowRight') KEY.r = 1;
-  if ((ev.key === ' ' || ev.key === 'ArrowUp') && G.state === 'play' && P.orbit) { push(); ev.preventDefault(); }
 });
 addEventListener('keyup', function (ev) { if (ev.key === 'ArrowLeft') KEY.l = 0; if (ev.key === 'ArrowRight') KEY.r = 0; });
 
@@ -254,14 +251,6 @@ document.getElementById('btnAgain').addEventListener('click', function (ev) { th
 document.addEventListener('visibilitychange', function () { G.paused = document.hidden; if (document.hidden) humStop(); });
 
 function say(text, t) { G.msg = { text: text, t: t || 2.2, max: t || 2.2 }; }
-
-// 1回タップ = 星から 外へ ふんばる
-function push() {
-  if (!P.orbit) return;
-  P.orbit.dv += CONFIG.PUSH * P.orbit.s.R * 7;
-  SFX.push();
-  if (G.taught < 2) G.taught = 2;
-}
 
 function speedNow() { return Math.min(CONFIG.SPEED_MAX, CONFIG.SPEED0 + CONFIG.SPEED_ADD * G.t); }
 
@@ -315,9 +304,9 @@ function capture(s) {
   var dx = P.x - s.x, dy = P.y - s.y, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
   var tx = -Math.sin(a), ty = Math.cos(a);           // a が増える向きの接線
   var dir = (tx * P.vx + ty * P.vy) >= 0 ? 1 : -1;
-  P.orbit = { s: s, d: d, a: a, dir: dir, prog: 0, dv: 0 };
+  P.orbit = { s: s, d: d, a: a, dir: dir, prog: 0 };
   SFX.capture(); humStart();
-  if (G.taught < 1) { G.taught = 1; say('タップで外へふんばれ！\n1周でのみこむ！', 3); }
+  if (G.taught < 1) { G.taught = 1; say('自動で1周して\nのみこむぞ！', 2.5); }
 }
 function release(ate) {
   var o = P.orbit, s = o.s, v = speedNow() / Z.z;
@@ -331,10 +320,10 @@ function release(ate) {
   } else { s.cool = 1; SFX.slip(); }
 }
 
-// 確認用の自動運転(アドレスに #auto)。星の輪へ向かい、内側に寄りすぎたらタップする
+// 確認用の自動運転(アドレスに #auto)。星の輪へ向かい、トゲ星と隕石をよける
 var AUTO = location.hash === '#auto';
 function autoPilot() {
-  if (P.orbit) { var o = P.orbit; if (o.d < o.s.R + P.r * 1.6 && o.dv < o.s.R) push(); return; }
+  if (P.orbit) return;
   var best = null, bd = 1e9;
   for (var i = 0; i < OBJ.length; i++) {
     var b = OBJ[i], ahead = P.y - b.y;
@@ -360,15 +349,14 @@ function update(dt) {
 
   if (P.orbit) {
     var o = P.orbit, s = o.s;
-    var shrink = Math.min(CONFIG.SHRINK_MAX, CONFIG.SHRINK0 + CONFIG.SHRINK_ADD * G.t) * s.R;
-    o.d += (o.dv - shrink) * dt; o.dv *= Math.exp(-7 * dt);
-    var w = v * 1.1 / o.d;
+    // 何もしなくても、ぶつからない高さへ すっと寄って 自動で回る
+    o.d += (Math.max(s.R * CONFIG.ORBIT_R, s.R + P.r * 1.3) - o.d) * Math.min(1, 3 * dt);
+    var w = v * 1.5 / o.d;
     o.a += o.dir * w * dt; o.prog += w * dt;
     P.x = s.x + o.d * Math.cos(o.a); P.y = s.y + o.d * Math.sin(o.a);
     humSet(o.prog / TAU);
     if (o.d < s.R + P.r * CONFIG.DEATH) { die('星にぶつかった！'); return; }
     if (o.prog >= TAU) release(true);
-    else if (o.d > s.R * CONFIG.RING) release(false);
   } else {
     G.dist += sp * dt;
     P.tx += (KEY.r - KEY.l) * 280 / Z.z * dt;
@@ -435,7 +423,7 @@ function update(dt) {
 
   // うしろの闇
   var gapMax = CONFIG.CHASE_GAP / Z.z;
-  G.chase = Math.min(G.chase - v * CONFIG.CHASE * dt, P.y + gapMax);
+  G.chase = Math.min(G.chase - v * (P.orbit ? CONFIG.CHASE_ORBIT : CONFIG.CHASE) * dt, P.y + gapMax);
   var gap = (G.chase - P.y) * Z.z;
   if (gap < P.r * Z.z * 0.6) { die('闇に追いつかれた！'); return; }
   if (gap < 130) { G.warnT -= dt; if (G.warnT <= 0) { SFX.warn(); G.warnT = Math.max(0.12, gap / 400); } }
@@ -661,7 +649,7 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
 <script>
   // はじめの画面(Google Play 風: インストール / このまま遊ぶ)。install.js が出す。ホーム画面から開いたときは出ない
   window.INSTALL_GATE = { id: 'blackhole', name: 'ブラックホール・ダッシュ', icon: 'icon-192.png', tagline: '止まれない宇宙で、星をのみこめ',
-    desc: '小さなブラックホールになって、止まれない宇宙を飛ぶ。小さいものは吸いこみ、大きな星はまわりを1周して丸のみ。ぶつかったら一発アウト。',
+    desc: '小さなブラックホールになって、止まれない宇宙を飛ぶ。小さいものは吸いこみ、大きな星は金の輪に入れば自動で1周して丸のみ。ぶつかったら一発アウト。',
     points: ['🕳️ 指をすべらせるだけ', '⭐ 星を1周して丸のみ', '💥 当たったら一発アウト'], shots: ['shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg'], badges: ['無料', '広告なし', '登録なし'] };
 </script>
 <script src="install.js"></script>
