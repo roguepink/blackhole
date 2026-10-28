@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07051a">
+<title>ブラックホール・ダッシュ</title>
+<meta name="description" content="止まれない宇宙で、小さなブラックホールが星を飲み込み巨大化！ぶつかったら一発アウト。">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BHダッシュ">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ブラックホール・ダッシュ">
+<meta property="og:description" content="止まれない宇宙で、小さなブラックホールが星を飲み込み巨大化！ぶつかったら一発アウト。">
+<meta property="og:image" content="https://roguepink.github.io/blackhole/ogp.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #07051a; color: #fff;
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans JP", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom); background: rgba(5, 3, 18, .78); }
+  .overlay.hidden { display: none; }
+  h1 { margin: 0; font-size: clamp(30px, 9vw, 50px); font-weight: 900; line-height: 1.2;
+    background: linear-gradient(180deg, #fff 20%, #ffb35c 80%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { margin: 0; line-height: 1.7; }
+  .rules { text-align: left; font-size: 15px; line-height: 1.6; max-width: 320px; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.15); border-radius: 14px; padding: 12px 14px; }
+  .rules b { color: #ffd15c; }
+  .rules .ng { color: #ff7a7a; }
+  button { font: inherit; font-weight: 800; font-size: 20px; padding: 14px 40px; border: 0; border-radius: 999px;
+    background: linear-gradient(180deg, #ffd15c, #ff8a3c); color: #1b0d05; cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent; box-shadow: 0 0 24px rgba(255,150,60,.55); }
+  #hud { position: fixed; top: calc(env(safe-area-inset-top) + 10px); left: 0; right: 0; display: flex; justify-content: space-between;
+    align-items: center; padding: 0 14px; font-weight: 800; font-size: 18px; pointer-events: none; text-shadow: 0 2px 4px #000; }
+  #stage { font-size: 14px; color: #ffd15c; }
+  #best { font-size: 14px; opacity: .8; }
+  #mute { position: fixed; right: 10px; bottom: calc(env(safe-area-inset-bottom) + 10px); width: 44px; height: 44px; padding: 0;
+    font-size: 20px; background: rgba(255,255,255,.12); box-shadow: none; color: #fff; z-index: 5; }
+  #overText { font-size: clamp(26px, 8vw, 40px); }
+  #overWhy { color: #ff9a9a; font-weight: 700; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><span id="score">0</span><span id="stage"></span><span id="best"></span></div>
+<button id="mute" type="button" aria-label="音">🔊</button>
+<div id="title" class="overlay">
+  <h1>ブラックホール<br>ダッシュ</h1>
+  <div class="rules">
+    🕳️ 止まれない。<b>指を左右にすべらせて</b>よける<br>
+    🪨 小さいものは<b>通るだけで吸いこむ</b><br>
+    ⭐ 大きな星は<b>金の輪</b>に入ると回り出す。<br>
+    　<b>タップで外へふんばり</b>、1周したら<b>丸のみ！</b><br>
+    <span class="ng">💥 星・白いトゲ星・赤い隕石に当たったら一発アウト</span><br>
+    <span class="ng">🌑 うしろから闇がせまる。追いつかれてもアウト</span>
+  </div>
+  <button id="btnPlay" type="button">あそぶ</button>
+</div>
+<div id="over" class="overlay hidden">
+  <h1 id="overText">のみこまれた…</h1>
+  <p id="overWhy"></p>
+  <p id="overScore"></p>
+  <button id="btnAgain" type="button">もういっかい</button>
+</div>
+<script>
+'use strict';
+var CONFIG = {
+  W: 360, H: 640, DT: 1 / 60, BEST_KEY: 'blackhole-best',
+  PLAYER_Y: 0.68,      // 自分は画面の上から 68% の高さ
+  R0: 10,              // はじめの大きさ(世界の単位)
+  PR: 15,              // 画面の上での自分の半径(px)。大きくなるとカメラが引く
+  SPEED0: 165, SPEED_ADD: 3.2, SPEED_MAX: 320,   // 前に進む速さ(画面 px/秒)
+  RING: 2.3,           // 星の「金の輪」= 星の半径 × これ
+  DEATH: 0.55,         // 星の表面 + 自分の半径 × これ より内側で アウト
+  SHRINK0: 0.62, SHRINK_ADD: 0.010, SHRINK_MAX: 1.1,   // 回っている間に 星へ落ちていく速さ(星の半径 × /秒)
+  PUSH: 0.30,          // 1回のタップで 外へ ふんばる量(星の半径 ×)
+  CHASE: 0.62, CHASE_GAP: 300   // うしろの闇の速さ(自分の速さ ×)・いちばん離れても この距離(画面 px)
+};
+var STAGES = [
+  { n: '石ころ級', m: 1, e: ['🪨', '🛰️', '🧊'] },
+  { n: '月級', m: 2, e: ['🌑', '🛸', '🪨', '🛰️'] },
+  { n: '惑星級', m: 4, e: ['🌕', '🌍', '🪐', '🌑'] },
+  { n: '太陽級', m: 8, e: ['🪐', '🌍', '🌟', '☄️'] },
+  { n: '銀河級', m: 16, e: ['🌟', '🌌', '💫', '🪐'] }
+];
+var STAR_COLORS = ['#ffd27a', '#ff9a5a', '#8fc8ff', '#fff0b0', '#ff86b0', '#b9a2ff'];
+var TAU = Math.PI * 2;
+
+var cv = document.getElementById('game'), ctx = cv.getContext('2d');
+var G = { state: 'title', score: 0, best: 0, t: 0, paused: false };
+var P, Z, OBJ, PARTS;
+try { G.best = +localStorage.getItem(CONFIG.BEST_KEY) || 0; } catch (e) {}
+document.getElementById('best').textContent = G.best ? 'ベスト ' + G.best : '';
+
+var base = [1, 0, 0, 1, 0, 0];
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 3);
+  cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
+  var s = Math.min(cv.width / CONFIG.W, cv.height / CONFIG.H);
+  base = [s, 0, 0, s, (cv.width - CONFIG.W * s) / 2, (cv.height - CONFIG.H * s) / 2];
+}
+addEventListener('resize', resize); resize();
+
+// ---- 絵文字を1枚の絵(アトラス)にまとめる(スマホの記憶不足対策) ----
+var ATL = { cv: null, idx: {}, cell: 96 };
+function buildAtlas() {
+  var list = [];
+  STAGES.forEach(function (s) { s.e.forEach(function (e) { if (list.indexOf(e) < 0) list.push(e); }); });
+  ['☄️'].forEach(function (e) { if (list.indexOf(e) < 0) list.push(e); });
+  var c = document.createElement('canvas'); c.width = ATL.cell * list.length; c.height = ATL.cell;
+  var x = c.getContext('2d');
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = '76px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  list.forEach(function (e, i) { ATL.idx[e] = i; x.fillText(e, i * ATL.cell + ATL.cell / 2, ATL.cell / 2 + 4); });
+  ATL.cv = c;
+}
+buildAtlas();
+cv.addEventListener('contextrestored', buildAtlas);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { resize(); } });
+
+// ---- 音(WebAudio。最初のタップのあとで鳴らす) ----
+var AU = { ctx: null, muted: false, hum: null };
+try { AU.muted = localStorage.getItem('blackhole-mute') === '1'; } catch (e) {}
+function setMuteBtn() { document.getElementById('mute').textContent = AU.muted ? '🔇' : '🔊'; }
+setMuteBtn();
+document.getElementById('mute').addEventListener('click', function () {
+  AU.muted = !AU.muted; setMuteBtn(); this.blur();
+  try { localStorage.setItem('blackhole-mute', AU.muted ? '1' : '0'); } catch (e) {}
+  if (AU.muted) humStop();
+});
+function audioInit() {
+  if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
+  try { AU.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+}
+function tone(f, dur, type, vol, f2, delay) {
+  if (!AU.ctx || AU.muted) return;
+  var c = AU.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(vol || 0.1, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(dur, vol, lp) {
+  if (!AU.ctx || AU.muted) return;
+  var c = AU.ctx, n = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  var s = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = lp || 900; s.buffer = b; g.gain.value = vol || 0.3;
+  s.connect(f); f.connect(g); g.connect(c.destination); s.start();
+}
+function humStart() {
+  if (!AU.ctx || AU.muted || AU.hum) return;
+  var c = AU.ctx, o = c.createOscillator(), g = c.createGain();
+  o.type = 'sawtooth'; o.frequency.value = 70; g.gain.value = 0.0001;
+  g.gain.exponentialRampToValueAtTime(0.05, c.currentTime + 0.15);
+  var f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+  o.connect(f); f.connect(g); g.connect(c.destination); o.start(); AU.hum = { o: o, g: g };
+}
+function humSet(p) { if (AU.hum) AU.hum.o.frequency.setTargetAtTime(70 + p * 180, AU.ctx.currentTime, 0.05); }
+function humStop() {
+  if (!AU.hum) return;
+  var h = AU.hum; AU.hum = null;
+  try { h.g.gain.setTargetAtTime(0.0001, AU.ctx.currentTime, 0.05); h.o.stop(AU.ctx.currentTime + 0.3); } catch (e) {}
+}
+var SFX = {
+  eat: function () { tone(500 + Math.random() * 500, 0.08, 'sine', 0.07, 1400); },
+  capture: function () { tone(220, 0.25, 'triangle', 0.08, 110); },
+  push: function () { tone(260, 0.12, 'square', 0.04, 620); },
+  star: function () { noise(0.7, 0.35, 400); tone(90, 0.9, 'sine', 0.3, 30); tone(660, 0.3, 'triangle', 0.08, 1320, 0.15); tone(990, 0.4, 'triangle', 0.07, 1980, 0.3); },
+  grow: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.22, 'triangle', 0.08, 0, i * 0.09); }); },
+  slip: function () { tone(400, 0.25, 'sine', 0.06, 200); },
+  warn: function () { tone(880, 0.07, 'square', 0.04); },
+  die: function () { noise(0.9, 0.5, 1500); tone(180, 0.8, 'sawtooth', 0.15, 30); }
+};
+
+// ---- 入力 ----
+function toLogical(ev) {
+  var r = cv.getBoundingClientRect(), s = Math.min(r.width / CONFIG.W, r.height / CONFIG.H);
+  return { x: (ev.clientX - r.left - (r.width - CONFIG.W * s) / 2) / s, y: (ev.clientY - r.top - (r.height - CONFIG.H * s) / 2) / s };
+}
+var drag = null, KEY = { l: 0, r: 0 };
+cv.addEventListener('pointerdown', function (ev) {
+  audioInit();
+  if (G.state !== 'play') return;
+  drag = { x: toLogical(ev).x, id: ev.pointerId };
+  try { cv.setPointerCapture(ev.pointerId); } catch (e) {}
+  if (P.orbit) push();
+});
+cv.addEventListener('pointermove', function (ev) {
+  if (G.state !== 'play' || !drag || drag.id !== ev.pointerId) return;
+  var x = toLogical(ev).x, dx = x - drag.x; drag.x = x;
+  if (!P.orbit) P.tx += dx * 1.4 / Z.z;
+});
+function endDrag(ev) { if (drag && drag.id === ev.pointerId) drag = null; }
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+addEventListener('keydown', function (ev) {
+  if (ev.key === 'ArrowLeft') KEY.l = 1;
+  if (ev.key === 'ArrowRight') KEY.r = 1;
+  if ((ev.key === ' ' || ev.key === 'ArrowUp') && G.state === 'play' && P.orbit) { push(); ev.preventDefault(); }
+});
+addEventListener('keyup', function (ev) { if (ev.key === 'ArrowLeft') KEY.l = 0; if (ev.key === 'ArrowRight') KEY.r = 0; });
+
+// ---- ゲームの流れ ----
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function stageOf(r) { var i = 0; for (var k = 0; k < STAGES.length; k++) if (r / CONFIG.R0 >= STAGES[k].m) i = k; return i; }
+
+function start(ev) {
+  audioInit();
+  P = { x: 0, y: 0, tx: 0, vx: 0, vy: -CONFIG.SPEED0 / (CONFIG.PR / CONFIG.R0), r: CONFIG.R0, orbit: null, spin: 0 };
+  Z = { z: CONFIG.PR / CONFIG.R0, zt: CONFIG.PR / CONFIG.R0 };
+  OBJ = []; PARTS = [];
+  G.state = 'play'; G.score = 0; G.t = 0; G.dist = 0; G.pts = 0; G.cx = 0; G.cy = 0; G.shake = 0; G.flash = 0;
+  G.spawnY = -60; G.chunk = 0; G.lastStar = -9; G.metT = 6; G.stage = 0; G.bg = 0;
+  G.chase = CONFIG.CHASE_GAP / Z.z; G.warnT = 0; G.msg = null; G.taught = 0; G.why = '';
+  document.getElementById('title').classList.add('hidden'); document.getElementById('over').classList.add('hidden');
+  document.getElementById('stage').textContent = STAGES[0].n;
+  // iPhone / Android で最初のタップのあとに全画面にする(失敗してもそのまま遊べる)。#play の自動開始では やらない
+  if (ev && ev.isTrusted) try {
+    var el = document.documentElement, fs = el.requestFullscreen || el.webkitRequestFullscreen;
+    var pr = fs && fs.call(el);
+    if (pr && pr.catch) pr.catch(function () {});   // 断られても(自動確認のときなど)エラーにしない
+  } catch (e) {}
+}
+function die(why) {
+  if (G.state !== 'play') return;
+  G.state = 'dying'; G.dieT = 1.1; G.why = why; G.shake = 18; G.flash = 1;
+  humStop(); SFX.die();
+  try { if (navigator.vibrate) navigator.vibrate([60, 40, 120]); } catch (e) {}
+  for (var i = 0; i < 60; i++) {
+    var a = Math.random() * TAU, s = rnd(40, 260) / Z.z;
+    PARTS.push({ x: P.x, y: P.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: rnd(0.5, 1.2), c: i % 3 ? '#ff9a3c' : '#fff', sz: rnd(1.5, 4) });
+  }
+}
+function finish() {
+  G.state = 'over';
+  if (G.score > G.best) { G.best = G.score; try { localStorage.setItem(CONFIG.BEST_KEY, String(G.best)); } catch (e) {} }
+  document.getElementById('best').textContent = 'ベスト ' + G.best;
+  document.getElementById('overWhy').textContent = G.why;
+  document.getElementById('overScore').innerHTML = 'スコア ' + G.score + '<br>大きさ ' + STAGES[G.stage].n + (G.best ? '<br>ベスト ' + G.best : '');
+  document.getElementById('over').classList.remove('hidden');
+}
+document.getElementById('btnPlay').addEventListener('click', function (ev) { this.blur(); start(ev); });
+document.getElementById('btnAgain').addEventListener('click', function (ev) { this.blur(); start(ev); });
+document.addEventListener('visibilitychange', function () { G.paused = document.hidden; if (document.hidden) humStop(); });
+
+function say(text, t) { G.msg = { text: text, t: t || 2.2, max: t || 2.2 }; }
+
+// 1回タップ = 星から 外へ ふんばる
+function push() {
+  if (!P.orbit) return;
+  P.orbit.dv += CONFIG.PUSH * P.orbit.s.R * 7;
+  SFX.push();
+  if (G.taught < 2) G.taught = 2;
+}
+
+function speedNow() { return Math.min(CONFIG.SPEED_MAX, CONFIG.SPEED0 + CONFIG.SPEED_ADD * G.t); }
+
+// 先の宇宙を 1かたまりずつ 作る
+function spawnChunk() {
+  var r = P.r, FH = 165 / Z.zt, ch = 150 / Z.zt, y0 = G.spawnY, st = STAGES[stageOf(r)];
+  G.spawnY -= ch; G.chunk++;
+  var star = null;
+  if (G.chunk >= 4 && G.chunk - G.lastStar >= 3 && (G.chunk === 4 || Math.random() < 0.55)) {
+    var R = r * rnd(1.7, 2.4), lim = Math.max(0, FH - R * 1.2);
+    var tries = 0, stx;
+    do { stx = rnd(-lim, lim); tries++; } while (tries < 8 && OBJ.some(function (o) { return o.k === 'spike' && Math.hypot(o.x - stx, o.y - (y0 - ch / 2)) < R * CONFIG.RING + o.s + r * 3; }));
+    star = { k: 'star', x: stx, y: y0 - ch / 2, R: R, c: STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0], cool: 0, rot: 0 };
+    OBJ.push(star); G.lastStar = G.chunk;
+  }
+  var n = 2 + ((Math.random() * 3) | 0);
+  for (var i = 0; i < n; i++) {
+    var o = { k: 'food', x: rnd(-FH * 0.92, FH * 0.92), y: y0 - Math.random() * ch, s: r * rnd(0.28, 0.6),
+      e: st.e[(Math.random() * st.e.length) | 0], rot: Math.random() * TAU, vr: rnd(-1.5, 1.5) };
+    if (nearStar(o.x, o.y, o.s * 2)) continue;
+    OBJ.push(o);
+  }
+  // 白いトゲ星(食べられない。当たるとアウト)
+  if (G.t > 5 && !star && Math.random() < Math.min(0.6, 0.25 + G.t * 0.008)) {
+    var s = r * rnd(0.95, 1.45), x = rnd(-FH * 0.85, FH * 0.85), y = y0 - ch / 2;
+    if (!nearStar(x, y, s + r * 3)) OBJ.push({ k: 'spike', x: x, y: y, s: s, rot: 0, ph: Math.random() * TAU });
+  }
+}
+function nearStar(x, y, pad) {
+  for (var i = 0; i < OBJ.length; i++) {
+    var o = OBJ[i];
+    if (o.k === 'star' && Math.hypot(o.x - x, o.y - y) < o.R * CONFIG.RING + pad) return true;
+  }
+  return false;
+}
+
+function grow(add2) {
+  var before = stageOf(P.r);
+  P.r = Math.sqrt(P.r * P.r + add2);
+  var after = stageOf(P.r);
+  if (after > before) { G.stage = after; say(STAGES[after].n + 'に成長！', 2.2); SFX.grow(); document.getElementById('stage').textContent = STAGES[after].n; }
+}
+function burst(x, y, n, col, sp) {
+  for (var i = 0; i < n; i++) {
+    var a = Math.random() * TAU, s = rnd(0.3, 1) * sp;
+    PARTS.push({ x: x, y: y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, t: rnd(0.3, 0.8), c: col, sz: rnd(1, 3), suck: true });
+  }
+}
+
+function capture(s) {
+  var dx = P.x - s.x, dy = P.y - s.y, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
+  var tx = -Math.sin(a), ty = Math.cos(a);           // a が増える向きの接線
+  var dir = (tx * P.vx + ty * P.vy) >= 0 ? 1 : -1;
+  P.orbit = { s: s, d: d, a: a, dir: dir, prog: 0, dv: 0 };
+  SFX.capture(); humStart();
+  if (G.taught < 1) { G.taught = 1; say('タップで外へふんばれ！\n1周でのみこむ！', 3); }
+}
+function release(ate) {
+  var o = P.orbit, s = o.s, v = speedNow() / Z.z;
+  P.vx = -Math.sin(o.a) * o.dir * v; P.vy = Math.cos(o.a) * o.dir * v;
+  P.tx = P.x; P.orbit = null; humStop();
+  if (ate) {
+    s.dead = true; G.pts += 25; G.shake = 10; G.flash = 0.6;
+    burst(s.x, s.y, 50, s.c, s.R * 4);
+    SFX.star(); grow(s.R * s.R * 0.32);
+    say('丸のみ！', 1.2);
+  } else { s.cool = 1; SFX.slip(); }
+}
+
+// 確認用の自動運転(アドレスに #auto)。星の輪へ向かい、内側に寄りすぎたらタップする
+var AUTO = location.hash === '#auto';
+function autoPilot() {
+  if (P.orbit) { var o = P.orbit; if (o.d < o.s.R + P.r * 1.6 && o.dv < o.s.R) push(); return; }
+  var best = null, bd = 1e9;
+  for (var i = 0; i < OBJ.length; i++) {
+    var b = OBJ[i], ahead = P.y - b.y;
+    if (ahead < 0 || ahead > 500 / Z.z) continue;
+    if (b.k === 'star' && b.R > P.r * 1.1 && b.cool <= 0 && ahead < bd) { bd = ahead; best = b.x + (b.x > P.x ? -1 : 1) * b.R * 1.7; }
+    if ((b.k === 'spike' || b.k === 'met') && Math.abs(b.x - P.x) < b.s + P.r * 2 && ahead < 220 / Z.z) best = P.x + (b.x > P.x ? -1 : 1) * (b.s + P.r * 3);
+  }
+  if (best != null) P.tx += (best - P.tx) * 0.08;
+}
+
+function update(dt) {
+  if (AUTO && G.state === 'play') autoPilot();
+  if (G.state === 'dying') {
+    stepParts(dt); G.shake *= Math.exp(-4 * dt); G.flash = Math.max(0, G.flash - dt * 2);
+    G.dieT -= dt; if (G.dieT <= 0) finish();
+    return;
+  }
+  G.t += dt;
+  var sp = speedNow(), v = sp / Z.z;
+  Z.zt = CONFIG.PR / P.r; Z.z += (Z.zt - Z.z) * Math.min(1, 1.8 * dt);
+  var FH = 165 / Z.zt;
+  P.spin += dt * 4;
+
+  if (P.orbit) {
+    var o = P.orbit, s = o.s;
+    var shrink = Math.min(CONFIG.SHRINK_MAX, CONFIG.SHRINK0 + CONFIG.SHRINK_ADD * G.t) * s.R;
+    o.d += (o.dv - shrink) * dt; o.dv *= Math.exp(-7 * dt);
+    var w = v * 1.1 / o.d;
+    o.a += o.dir * w * dt; o.prog += w * dt;
+    P.x = s.x + o.d * Math.cos(o.a); P.y = s.y + o.d * Math.sin(o.a);
+    humSet(o.prog / TAU);
+    if (o.d < s.R + P.r * CONFIG.DEATH) { die('星にぶつかった！'); return; }
+    if (o.prog >= TAU) release(true);
+    else if (o.d > s.R * CONFIG.RING) release(false);
+  } else {
+    G.dist += sp * dt;
+    P.tx += (KEY.r - KEY.l) * 280 / Z.z * dt;
+    P.vy += (-v - P.vy) * Math.min(1, 2.2 * dt);
+    P.vx *= Math.exp(-2.2 * dt);
+    P.tx += P.vx * dt;
+    P.tx = Math.max(-FH, Math.min(FH, P.tx));
+    P.x += (P.tx - P.x) * Math.min(1, 12 * dt);
+    P.y += P.vy * dt;
+  }
+
+  // カメラ
+  G.cy += (P.y - G.cy) * Math.min(1, (P.orbit ? 4 : 8) * dt);
+  G.cx += (P.x * 0.45 - G.cx) * Math.min(1, 4 * dt);
+  G.bg += sp * dt * (P.orbit ? 0.3 : 1);
+
+  // 先を作る・うしろを消す
+  var ahead = G.cy - (CONFIG.H * CONFIG.PLAYER_Y + 160) / Z.z;
+  while (G.spawnY > ahead) spawnChunk();
+  var behind = Math.max(G.chase, G.cy + CONFIG.H / Z.z) + 200 / Z.z;
+
+  // 隕石
+  if (G.t > 14) {
+    G.metT -= dt;
+    if (G.metT <= 0) {
+      G.metT = rnd(2.2, 4.5) * Math.max(0.5, 1 - G.t / 200);
+      var side = Math.random() < 0.5 ? -1 : 1, top = G.cy - (CONFIG.H * CONFIG.PLAYER_Y + 40) / Z.z;
+      OBJ.push({ k: 'met', x: side * (190 / Z.z + G.cx), y: top + rnd(0, 120) / Z.z, vx: -side * rnd(110, 180) / Z.z, vy: rnd(40, 110) / Z.z, s: P.r * rnd(0.6, 0.9) });
+    }
+  }
+
+  // ぶつかり・吸いこみ
+  for (var i = 0; i < OBJ.length; i++) {
+    var b = OBJ[i];
+    if (b.dead) continue;
+    if (b.y > behind) { b.dead = true; continue; }
+    var dx = P.x - b.x, dy = P.y - b.y, d = Math.hypot(dx, dy);
+    if (b.k === 'food' || ((b.k === 'spike' || b.k === 'met') && b.s < P.r * 0.8) || (b.k === 'star' && b.R < P.r * 1.1)) {
+      if (b.k === 'met') { b.x += b.vx * dt; b.y += b.vy * dt; }
+      b.rot += (b.vr || 1) * dt;
+      var sz = b.R || b.s, range = P.r * 2.8 + sz;
+      if (d < range) { var k = Math.min(1, (1 - d / range) * 7 * dt); b.x += dx * k; b.y += dy * k; }
+      if (d < P.r + sz * 0.25) {
+        b.dead = true; G.pts += b.k === 'food' ? 1 : 5; grow(sz * sz * (b.k === 'food' ? 0.5 : 0.6));
+        burst(b.x, b.y, 8, '#ffcf7a', 60 / Z.z); SFX.eat();
+      }
+    } else if (b.k === 'star') {
+      b.rot += dt * 0.6; if (b.cool > 0) b.cool -= dt;
+      if (!P.orbit) {
+        if (d < b.R + P.r * CONFIG.DEATH) { die('星にぶつかった！'); return; }
+        if (b.cool <= 0 && d < b.R * CONFIG.RING) capture(b);
+        else if (G.taught < 1 && !G.msg && d < b.R * CONFIG.RING + 260 / Z.z) say('金の輪に入ると\n星のまわりを回る！', 2.4);
+      }
+    } else if (b.k === 'spike') {
+      b.rot += dt * 0.8; b.ph += dt * 5;
+      if (d < b.s * 0.8 + P.r * 0.7) { die('白いトゲ星に当たった！'); return; }
+      if (P.orbit && Math.hypot(P.x - b.x, P.y - b.y) < b.s * 0.8 + P.r * 0.7) { die('白いトゲ星に当たった！'); return; }
+    } else if (b.k === 'met') {
+      b.x += b.vx * dt; b.y += b.vy * dt; b.rot += dt * 3;
+      if (d < b.s * 0.75 + P.r * 0.7) { die('隕石に当たった！'); return; }
+    }
+  }
+  OBJ = OBJ.filter(function (b) { return !b.dead; });
+
+  // うしろの闇
+  var gapMax = CONFIG.CHASE_GAP / Z.z;
+  G.chase = Math.min(G.chase - v * CONFIG.CHASE * dt, P.y + gapMax);
+  var gap = (G.chase - P.y) * Z.z;
+  if (gap < P.r * Z.z * 0.6) { die('闇に追いつかれた！'); return; }
+  if (gap < 130) { G.warnT -= dt; if (G.warnT <= 0) { SFX.warn(); G.warnT = Math.max(0.12, gap / 400); } }
+
+  stepParts(dt);
+  G.shake *= Math.exp(-6 * dt); G.flash = Math.max(0, G.flash - dt * 2);
+  if (G.msg) { G.msg.t -= dt; if (G.msg.t <= 0) G.msg = null; }
+  G.score = Math.floor(G.dist / 40) + G.pts;
+  document.getElementById('score').textContent = G.score;
+}
+function stepParts(dt) {
+  for (var i = 0; i < PARTS.length; i++) {
+    var p = PARTS[i];
+    if (p.suck && P) { p.vx += (P.x - p.x) * 6 * dt; p.vy += (P.y - p.y) * 6 * dt; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.exp(-2 * dt); p.vy *= Math.exp(-2 * dt); p.t -= dt;
+  }
+  PARTS = PARTS.filter(function (p) { return p.t > 0; });
+}
+
+// ---- 描く ----
+var BGS = [];
+for (var i = 0; i < 110; i++) BGS.push({ x: Math.random() * 360, y: Math.random() * 640, l: [0.15, 0.35, 0.7][i % 3], a: rnd(0.3, 1) });
+function sx(x) { return CONFIG.W / 2 + (x - G.cx) * Z.z; }
+function sy(y) { return CONFIG.H * CONFIG.PLAYER_Y + (y - G.cy) * Z.z; }
+
+function drawBG() {
+  ctx.fillStyle = '#07051a'; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  var t = G.bg || 0;
+  var g = ctx.createRadialGradient(80, (200 + t * 0.05) % 1100 - 200, 0, 80, (200 + t * 0.05) % 1100 - 200, 260);
+  g.addColorStop(0, 'rgba(120,50,180,.35)'); g.addColorStop(1, 'rgba(120,50,180,0)');
+  ctx.fillStyle = g; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  var g2 = ctx.createRadialGradient(300, (700 + t * 0.08) % 1300 - 300, 0, 300, (700 + t * 0.08) % 1300 - 300, 240);
+  g2.addColorStop(0, 'rgba(40,90,190,.3)'); g2.addColorStop(1, 'rgba(40,90,190,0)');
+  ctx.fillStyle = g2; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  var fast = G.state === 'play' && !(P && P.orbit);
+  for (var i = 0; i < BGS.length; i++) {
+    var s = BGS[i], y = ((s.y + t * s.l) % 700 + 700) % 700 - 30;
+    ctx.fillStyle = 'rgba(255,255,255,' + s.a + ')';
+    var len = fast ? s.l * 10 : 1.5;
+    ctx.fillRect(s.x, y, s.l > 0.5 ? 2 : 1.2, len);
+  }
+}
+function drawEmoji(e, x, y, size, rot) {
+  var i = ATL.idx[e]; if (i == null) return;
+  ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot);
+  ctx.drawImage(ATL.cv, i * ATL.cell, 0, ATL.cell, ATL.cell, -size / 2, -size / 2, size, size);
+  ctx.restore();
+}
+function drawStar(b) {
+  var x = sx(b.x), y = sy(b.y), R = b.R * Z.z;
+  if (y < -R * 4 || y > CONFIG.H + R * 4) return;
+  var small = b.R < P.r * 1.1;
+  if (!small) {
+    // 金の輪(ここに入ると回り出す)
+    var ring = b.R * CONFIG.RING * Z.z;
+    var orb = P.orbit && P.orbit.s === b;
+    ctx.save();
+    ctx.globalAlpha = b.cool > 0 ? 0.15 : 1;
+    ctx.fillStyle = 'rgba(255,200,80,' + (orb ? 0.10 : 0.06) + ')';
+    ctx.beginPath(); ctx.arc(x, y, ring, 0, TAU); ctx.fill();
+    ctx.setLineDash([8, 7]); ctx.lineDashOffset = -b.rot * 30;
+    ctx.strokeStyle = 'rgba(255,205,90,.85)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, ring, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    // 危ない線
+    ctx.strokeStyle = 'rgba(255,70,70,' + (orb ? 0.8 : 0.35) + ')'; ctx.lineWidth = orb ? 2 : 1;
+    ctx.beginPath(); ctx.arc(x, y, (b.R + P.r * CONFIG.DEATH) * Z.z, 0, TAU); ctx.stroke();
+    if (orb) {
+      // 1周の進み具合
+      var o = P.orbit, st = Math.atan2(sy(P.y) - y, sx(P.x) - x);
+      ctx.strokeStyle = '#ffe27a'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+      ctx.shadowColor = '#ffb030'; ctx.shadowBlur = 14;
+      ctx.beginPath();
+      if (o.dir > 0) ctx.arc(x, y, ring + 8, st - o.prog, st); else ctx.arc(x, y, ring + 8, st, st + o.prog);
+      ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff'; ctx.font = '900 16px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(Math.floor(o.prog / TAU * 100) + '%', x, y - ring - 16);
+    }
+    ctx.restore();
+  }
+  // 星の本体
+  var g = ctx.createRadialGradient(x, y, 0, x, y, R * 1.9);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.35, b.c); g.addColorStop(0.55, hexA(b.c, 0.35)); g.addColorStop(1, hexA(b.c, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, R * 1.9, 0, TAU); ctx.fill();
+  var g3 = ctx.createRadialGradient(x - R * 0.3, y - R * 0.3, R * 0.1, x, y, R);
+  g3.addColorStop(0, '#fffbe8'); g3.addColorStop(0.7, b.c); g3.addColorStop(1, shade(b.c));
+  ctx.fillStyle = g3; ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
+}
+function hexA(h, a) { var n = parseInt(h.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+function shade(h) { var n = parseInt(h.slice(1), 16); return 'rgb(' + ((n >> 16) * 0.6 | 0) + ',' + (((n >> 8) & 255) * 0.6 | 0) + ',' + ((n & 255) * 0.6 | 0) + ')'; }
+function drawSpike(b) {
+  var x = sx(b.x), y = sy(b.y), s = b.s * Z.z;
+  if (y < -s * 3 || y > CONFIG.H + s * 3) return;
+  var edible = b.s < P.r * 0.8;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(b.rot);
+  if (!edible) {
+    ctx.strokeStyle = 'rgba(255,60,60,' + (0.35 + 0.3 * Math.sin(b.ph)) + ')'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, s * 1.25, 0, TAU); ctx.stroke();
+  }
+  ctx.shadowColor = '#bfe4ff'; ctx.shadowBlur = 18;
+  ctx.fillStyle = '#eef8ff';
+  ctx.beginPath();
+  for (var i = 0; i < 20; i++) { var a = i / 20 * TAU, rr = i % 2 ? s * 0.55 : s; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = '#9fd0ff'; ctx.beginPath(); ctx.arc(0, 0, s * 0.35, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawMet(b) {
+  var x = sx(b.x), y = sy(b.y), s = b.s * Z.z;
+  var edible = b.s < P.r * 0.8;
+  var ang = Math.atan2(b.vy, b.vx);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  var g = ctx.createLinearGradient(-s * 5, 0, 0, 0);
+  g.addColorStop(0, 'rgba(255,60,30,0)'); g.addColorStop(1, edible ? 'rgba(255,200,120,.7)' : 'rgba(255,80,40,.9)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-s * 5, 0); ctx.lineTo(0, -s * 0.8); ctx.lineTo(0, s * 0.8); ctx.fill();
+  ctx.fillStyle = edible ? '#c98a5a' : '#ff4a2a'; ctx.shadowColor = '#ff3a1a'; ctx.shadowBlur = edible ? 0 : 16;
+  ctx.beginPath(); ctx.arc(0, 0, s * 0.85, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawPlayer() {
+  var x = sx(P.x), y = sy(P.y), r = P.r * Z.z;
+  ctx.save();
+  // 光の円盤(降着円盤)
+  var g = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 2.6);
+  g.addColorStop(0, 'rgba(255,220,150,.95)'); g.addColorStop(0.25, 'rgba(255,140,50,.75)'); g.addColorStop(0.6, 'rgba(170,60,200,.3)'); g.addColorStop(1, 'rgba(120,40,200,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, TAU); ctx.fill();
+  ctx.translate(x, y); ctx.rotate(P.spin);
+  ctx.strokeStyle = 'rgba(255,240,200,.75)'; ctx.lineWidth = Math.max(1, r * 0.12);
+  for (var i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(0, 0, r * (1.3 + i * 0.28), i * 2.1, i * 2.1 + 1.6); ctx.stroke(); }
+  ctx.rotate(-P.spin);
+  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, 0, r * 1.02, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+function drawChase() {
+  var y = sy(G.chase);
+  if (y > CONFIG.H + 60) return;
+  var g = ctx.createLinearGradient(0, y - 90, 0, y + 30);
+  g.addColorStop(0, 'rgba(120,0,30,0)'); g.addColorStop(0.7, 'rgba(160,10,40,.55)'); g.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.fillStyle = g; ctx.fillRect(-400, y - 90, CONFIG.W + 800, 120);
+  ctx.fillStyle = '#000'; ctx.beginPath(); ctx.moveTo(-400, CONFIG.H + 400);
+  for (var x = -400; x <= CONFIG.W + 400; x += 14) ctx.lineTo(x, y + 18 + Math.sin(x * 0.13 + G.t * 6) * 7 + Math.sin(x * 0.051 - G.t * 3) * 6);
+  ctx.lineTo(CONFIG.W + 400, CONFIG.H + 400); ctx.fill();
+}
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#07051a'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(base[0], base[1], base[2], base[3], base[4], base[5]);
+  if (!P) { G.bg = (G.bg || 0) + 0.6; drawBG(); return; }
+  ctx.save();
+  if (G.shake > 0.3) ctx.translate(rnd(-G.shake, G.shake), rnd(-G.shake, G.shake));
+  drawBG();
+  var i, b;
+  for (i = 0; i < OBJ.length; i++) if (OBJ[i].k === 'star') drawStar(OBJ[i]);
+  for (i = 0; i < OBJ.length; i++) {
+    b = OBJ[i];
+    if (b.k === 'food') { var y = sy(b.y); if (y > -40 && y < CONFIG.H + 40) drawEmoji(b.e, sx(b.x), y, Math.max(22, b.s * 3.6 * Z.z), b.rot); }
+    else if (b.k === 'spike') drawSpike(b);
+    else if (b.k === 'met') drawMet(b);
+  }
+  if (G.state !== 'dying' && G.state !== 'over') drawPlayer();
+  for (i = 0; i < PARTS.length; i++) {
+    var p = PARTS[i]; ctx.globalAlpha = Math.min(1, p.t * 2); ctx.fillStyle = p.c;
+    ctx.fillRect(sx(p.x) - p.sz / 2, sy(p.y) - p.sz / 2, p.sz, p.sz);
+  }
+  ctx.globalAlpha = 1;
+  drawChase();
+  ctx.restore();
+  // 闇が近いと 画面のふちが赤くなる
+  var gap = (G.chase - P.y) * Z.z;
+  if (G.state === 'play' && gap < 170) {
+    var a = (1 - gap / 170) * (0.55 + 0.25 * Math.sin(G.t * 18));
+    var v = ctx.createRadialGradient(CONFIG.W / 2, CONFIG.H / 2, CONFIG.H * 0.3, CONFIG.W / 2, CONFIG.H / 2, CONFIG.H * 0.75);
+    v.addColorStop(0, 'rgba(255,0,0,0)'); v.addColorStop(1, 'rgba(255,0,30,' + a + ')');
+    ctx.fillStyle = v; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800);
+  }
+  if (G.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + G.flash * 0.6 + ')'; ctx.fillRect(-400, -400, CONFIG.W + 800, CONFIG.H + 800); }
+  if (G.msg) {
+    var m = G.msg, al = Math.min(1, m.t * 3, (m.max - m.t) * 6);
+    ctx.globalAlpha = al; ctx.textAlign = 'center'; ctx.font = '900 21px "Hiragino Sans",sans-serif';
+    m.text.split('\n').forEach(function (line, i) {
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(line, CONFIG.W / 2, 140 + i * 28);
+      ctx.fillStyle = '#ffe27a'; ctx.fillText(line, CONFIG.W / 2, 140 + i * 28);
+    });
+    ctx.globalAlpha = 1;
+  }
+}
+
+var last = 0, acc = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  try {
+    var dt = Math.min((now - last) / 1000, 0.05); last = now;
+    if ((G.state === 'play' || G.state === 'dying') && !G.paused) { acc += dt; while (acc >= CONFIG.DT) { update(CONFIG.DT); acc -= CONFIG.DT; } }
+    else acc = 0;
+    draw();
+  } catch (e) { console.error(e); }             // 1回の失敗で 全体が止まらないように
+}
+requestAnimationFrame(function (t) { last = t; loop(t); });
+// 確認用: アドレスのうしろに #play をつけると、タイトルを飛ばして すぐ始まる(スクショ・自動確認で使う)
+if (location.hash === '#play' || location.hash === '#auto') start();
+
+// LINE の中で開いたときだけ、1回だけ案内する(LINE の中は画面が小さく、ホーム画面にも入れられない)
+(function () {
+  var seenKey = 'blackhole-line-tip', seen = false;
+  try { seen = localStorage.getItem(seenKey) === '1'; } catch (e) {}
+  var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  if (!/\bLine\//i.test(navigator.userAgent) || standalone || seen) return;
+  var bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:99999;background:#fffaf0;color:#1b1430;border:3px solid #1b1430;border-radius:14px;padding:10px 40px 10px 12px;font:700 13px/1.5 system-ui,sans-serif';
+  bar.textContent = 'LINEの中だと画面が小さめです。右下の「…」(または右上の︙)から「ブラウザで開く」を選ぶと、大きく遊べて、ホーム画面にも入れられます。';
+  var x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'とじる'); x.textContent = '×';
+  x.style.cssText = 'position:absolute;top:4px;right:6px;width:32px;height:32px;border:0;background:none;font:900 20px/1 system-ui;color:#1b1430;cursor:pointer;box-shadow:none;padding:0';
+  x.addEventListener('click', function () { try { localStorage.setItem(seenKey, '1'); } catch (e) {} bar.remove(); });
+  bar.appendChild(x); addEventListener('load', function () { document.body.appendChild(bar); });
+})();
+
+// ホーム画面に入れられる(アプリのように開く)ための登録。file:// や 登録できない所では 何もしない
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+}
+</script>
+<script>
+  // はじめの画面(Google Play 風: インストール / このまま遊ぶ)。install.js が出す。ホーム画面から開いたときは出ない
+  window.INSTALL_GATE = { id: 'blackhole', name: 'ブラックホール・ダッシュ', icon: 'icon-192.png', tagline: '止まれない宇宙で、星をのみこめ',
+    desc: '小さなブラックホールになって、止まれない宇宙を飛ぶ。小さいものは吸いこみ、大きな星はまわりを1周して丸のみ。ぶつかったら一発アウト。',
+    points: ['🕳️ 指をすべらせるだけ', '⭐ 星を1周して丸のみ', '💥 当たったら一発アウト'], shots: ['shots/1.jpg', 'shots/2.jpg', 'shots/3.jpg'], badges: ['無料', '広告なし', '登録なし'] };
+</script>
+<script src="install.js"></script>
+</body>
+</html>
