@@ -297,6 +297,12 @@ function spawnChunk() {
     var s = r * rnd(0.95, 1.45), x = rnd(-FH * 0.85, FH * 0.85), y = y0 - ch / 2;
     if (!nearStar(x, y, s + r * 3)) OBJ.push({ k: 'spike', x: x, y: y, s: s, rot: 0, ph: Math.random() * TAU });
   }
+  // はしっこにいつづけると 安全になってしまうので、自分が寄っているほうのはしに トゲ星を置く
+  if (G.t > 3 && !star && Math.random() < 0.6) {
+    var es = r * rnd(1.0, 1.4), side = Math.abs(P.x) > FH * 0.45 ? (P.x < 0 ? -1 : 1) : (Math.random() < 0.5 ? -1 : 1);
+    var ex = side * (FH - es * rnd(0.3, 0.9)), ey = y0 - rnd(0.2, 0.8) * ch;
+    if (!nearStar(ex, ey, es + r * 3)) OBJ.push({ k: 'spike', x: ex, y: ey, s: es, rot: 0, ph: Math.random() * TAU });
+  }
 }
 function nearStar(x, y, pad) {
   for (var i = 0; i < OBJ.length; i++) {
